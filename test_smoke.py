@@ -13,3 +13,11 @@ def test_tools():
     assert "Tomorrow 9:30 AM" in server.run_tool("c", "check_availability", {})
     server.run_tool("c", "book_callback", {"name": "A", "phone": "1", "matter": "custody", "slot": "Tomorrow 9:30 AM"})
     assert "Tomorrow 9:30 AM" not in server.run_tool("c", "check_availability", {})
+
+def test_signature():
+    import hmac, hashlib
+    server.RETELL_KEY = "k"; raw = '{"event":"call_analyzed"}'; ts = "1700000000000"
+    d = hmac.new(b"k", (raw + ts).encode(), hashlib.sha256).hexdigest()
+    assert server.verify_signature(raw, f"v={ts},d={d}", now_ms=1700000000000)
+    assert not server.verify_signature(raw, f"v={ts},d={d}", now_ms=1700000000000 + 6*60*1000)
+    assert not server.verify_signature(raw + " ", f"v={ts},d={d}", now_ms=1700000000000)

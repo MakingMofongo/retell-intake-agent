@@ -4,7 +4,7 @@ Retell connects to wss://<host>/llm-websocket/{call_id}. We stream replies from 
 OpenAI-compatible chat API, run tools (availability lookup, callback booking, warm transfer),
 and log per-turn latency. Post-call analysis arrives at POST /webhook (HMAC-verified).
 """
-import asyncio, hashlib, hmac, json, os, sqlite3, time
+import asyncio, hashlib, hmac, json, os, re, sqlite3, time
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from openai import AsyncOpenAI
 
@@ -30,7 +30,7 @@ TOOLS = [
     {"type": "function", "function": {"name": "book_callback", "description": "Book a callback slot.",
         "parameters": {"type": "object", "properties": {"name": {"type": "string"}, "phone": {"type": "string"},
         "matter": {"type": "string"}, "slot": {"type": "string"}}, "required": ["name", "phone", "matter", "slot"]}}},
-    {"type": "function", "function": {"name": "transfer_to_human", "description": "Warm-transfer to the on-call attorney.",
+    {"type": "function", "function": {"name": "transfer_to_human", "description": "Transfer the call to the on-call attorney.",
         "parameters": {"type": "object", "properties": {"reason": {"type": "string"}}}}},
 ]
 
@@ -118,11 +118,22 @@ async def llm_ws(ws: WebSocket, call_id: str):
         if task:
             task.cancel()
 
+def verify_signature(raw: str, header: str, now_ms: int | None = None) -> bool:
+    # Retell: header "v={ms},d={hex}", digest = HMAC-SHA256(raw_body + ms, api_key); reject >5 min skew
+    m = re.match(r"^v=(\d+),d=(.*)$", header or "")
+    if not m:
+        return False
+    ts, digest = m.group(1), m.group(2)
+    now_ms = now_ms if now_ms is not None else int(time.time() * 1000)
+    if abs(now_ms - int(ts)) > 5 * 60 * 1000:
+        return False
+    expected = hmac.new(RETELL_KEY.encode(), (raw + ts).encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, digest)
+
 @app.post("/webhook")
 async def webhook(req: Request):
     body = await req.body()
-    sig = req.headers.get("x-retell-signature", "")
-    if RETELL_KEY and not hmac.compare_digest(sig, hmac.new(RETELL_KEY.encode(), body, hashlib.sha256).hexdigest()):
+    if RETELL_KEY and not verify_signature(body.decode(), req.headers.get("x-retell-signature", "")):
         raise HTTPException(401)
     ev = json.loads(body)
     if ev.get("event") == "call_analyzed":
