@@ -2,3 +2,8 @@ __pycache__/
 *.db
 analysis.jsonl
 .env
+cf-empty.yml
+tunnel.log
+tunnel.url
+server.log
+rec_*.wav
