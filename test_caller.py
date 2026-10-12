@@ -28,7 +28,7 @@ def tts(text):
 
 async def main(name):
     lines = [tts(t) for t in SCRIPTS[name]]
-    call = api("/v2/create-web-call", {"agent_id": AGENT})
+    call = api("/v3/create-web-call", {"agent_id": AGENT})
     room = rtc.Room(); agent_pcm = []; last_voice = [time.time()]
     @room.on("track_subscribed")
     def on_track(track, *_):
